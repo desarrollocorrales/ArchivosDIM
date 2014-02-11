@@ -12,11 +12,12 @@ namespace ReporteAnualEmpleados
 {
     public partial class Frm_Principal : Form
     {
-        private StreamReader fileDIM;
-        private StreamReader fileBonos;
+        private string[] sLineasArchivoDIM;
+        private string[] sLineasArchivoBonos;
+
         private StreamWriter fileResultado;
-        List<string[]> lstBonos;
-        List<string[]> lstDIM;
+        private List<string[]> lstBonos;
+        private List<string[]> lstDIM;
 
         public Frm_Principal()
         {
@@ -28,10 +29,12 @@ namespace ReporteAnualEmpleados
             txbAcciones.Paste(s + Environment.NewLine);
         }
 
-        private void BuscarArchivo(TextBox txb, ref StreamReader srFile)
+        private void BuscarArchivo(TextBox txb, ref string[] sLineasArchivo)
         {
             try
             {
+                sLineasArchivo = null;
+
                 DialogResult dr = ofdArchivo.ShowDialog();
 
                 if (dr == DialogResult.OK)
@@ -39,7 +42,7 @@ namespace ReporteAnualEmpleados
                     txb.Text = ofdArchivo.FileName;
                 }
 
-                srFile = new StreamReader(ofdArchivo.FileName);
+                sLineasArchivo = File.ReadAllLines(ofdArchivo.FileName);
 
                 ActualizarTxbAcciones(string.Format("El archivo {0} se cargó correctamente...", ofdArchivo.SafeFileName));
             }
@@ -51,12 +54,12 @@ namespace ReporteAnualEmpleados
 
         private void btnBuscarDIM_Click(object sender, EventArgs e)
         {
-            BuscarArchivo(txbFileDIM, ref fileDIM);
+            BuscarArchivo(txbFileDIM, ref sLineasArchivoDIM);
         }
 
         private void btnBuscarBonos_Click(object sender, EventArgs e)
         {
-            BuscarArchivo(txbFileBonos, ref fileBonos);
+            BuscarArchivo(txbFileBonos, ref sLineasArchivoBonos);
         }
 
         private void btnProcesar_Click(object sender, EventArgs e)
@@ -107,17 +110,24 @@ namespace ReporteAnualEmpleados
                     //Obtener Vector del archivo de los bonos de despensa
                     vectorBonos = lstBonos.Find(o => o.Contains(RFC));
 
-                    //Obtener el dato de bonos
-                    sbono = vectorBonos[2];
-                    if (sbono != string.Empty)
-                        dBono = Convert.ToDecimal(sbono);
+                    if (vectorBonos != null)
+                    {
+                        //Obtener el dato de bonos
+                        sbono = vectorBonos[2];
+                        if (sbono != string.Empty)
+                            dBono = Convert.ToDecimal(sbono);
+                        else
+                            dBono = 0;
+                    }
                     else
+                    {
                         dBono = 0;
+                    }
 
                     sb = new StringBuilder();
                     sb.Append(i++.ToString().PadLeft(3));
                     sb.Append(" Procesado ");
-                    sb.Append("\t" + RFC.PadLeft(13) + "\t");
+                    sb.Append(RFC.PadLeft(13));
                     sb.Append(string.Format(" Ahorro Anterior: {0};",vectorDIM[1]));
                     sb.Append(string.Format(" Ahorro Final: {0};", dAhorro));
                     sb.Append(string.Format(" Bonos de despensa: {0};", dBono));
@@ -136,7 +146,7 @@ namespace ReporteAnualEmpleados
             bool exitoDIM = true;
             bool exitoBonos = true;
 
-            if (fileDIM == null)
+            if (sLineasArchivoDIM == null)
             {
                 MessageBox.Show("Seleccione el archivo de texto DIM");
                 return false;
@@ -146,7 +156,7 @@ namespace ReporteAnualEmpleados
                 exitoDIM = ValidarArchivoDIM();
             }
 
-            if (fileBonos == null)
+            if (sLineasArchivoBonos == null)
             {
                 MessageBox.Show("Seleccione el archivo con la informacion de los bonos de despensa");
                 return false;
@@ -164,51 +174,40 @@ namespace ReporteAnualEmpleados
 
         private void LeerArchivoDIM()
         {
-            string sLinea;
-            string[] vector = null;
+            string[] vector;
 
             lstDIM = new List<string[]>();
-            fileDIM.BaseStream.Position = 0;
-            while (fileDIM.EndOfStream == false)
+
+            foreach (string sLinea in sLineasArchivoDIM)
             {
-                sLinea = fileDIM.ReadLine();
-                if (sLinea != string.Empty)
-                {
-                    vector = sLinea.Split('|');
-                    lstDIM.Add(vector);
-                }
+                vector = new string[1];
+                vector = sLinea.Split('|');
+                lstDIM.Add(vector);
             }
 
-            lstDIM = lstDIM.Distinct().ToList();
             ActualizarTxbAcciones(string.Format("El archivo DIM se ha leido con exito!!!"));
         }
 
         private void LeerArchivoBonos()
         {
-            string sLinea;
             string[] vector = null;
 
             lstBonos = new List<string[]>();
-            fileBonos.BaseStream.Position = 0;            
-            while (fileBonos.EndOfStream == false)
+
+            foreach (string sLinea in sLineasArchivoBonos)
             {
-                sLinea = fileBonos.ReadLine();
-                if (sLinea != string.Empty)
-                {
-                    vector = sLinea.Split('\t');
-                    lstBonos.Add(vector);
-                }
+                vector = new string[1];
+                vector = sLinea.Split('\t');
+                lstBonos.Add(vector);
             }
 
-            lstBonos = lstBonos.Distinct().ToList();
             ActualizarTxbAcciones(string.Format("El archivo de Bonos de despensa se ha leido con exito!!!"));
         }
 
         private bool ValidarArchivoBonos()
         {
-            fileBonos.BaseStream.Position = 0;
-            string linea = fileBonos.ReadLine();
-            string[] vector = linea.Split('\t');
+            string[] vector = sLineasArchivoBonos[0].Split('\t');
+            
             if (vector.Length != 5)
             {
                 MessageBox.Show("El archivo de bonos no tiene el formato correcto", "Error", 
@@ -218,12 +217,11 @@ namespace ReporteAnualEmpleados
 
             return true;
         }
+
         private bool ValidarArchivoDIM()
         {
-            fileDIM.BaseStream.Position = 0;
-            string linea = fileDIM.ReadLine();
-            string[] vector = linea.Split('|');
-            if (vector.Length != 110)
+            string[] vector = sLineasArchivoDIM[0].Split('|');
+            if (vector.Length < 110)
             {
                 MessageBox.Show("El archivo DIM no tiene el formato correcto", "Error",
                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -233,33 +231,9 @@ namespace ReporteAnualEmpleados
             return true;
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private void modificarArchivo()
         {
-            if (lstBonos != null)
-            {
-                string[] seleccion = lstBonos.Find(o => o.Contains("DUVA741016FM8"));
 
-                StringBuilder sb = new StringBuilder();
-                foreach (string s in seleccion)
-                {
-                    sb.AppendLine(s);
-                }
-
-                MessageBox.Show(sb.ToString());
-            }
-
-            if (lstDIM != null)
-            {
-                string[] seleccion = lstDIM.Find(o => o.Contains("DUVA741016FM8"));
-
-                StringBuilder sb = new StringBuilder();
-                foreach (string s in seleccion)
-                {
-                    sb.AppendLine(s);
-                }
-
-                MessageBox.Show(sb.ToString());
-            }
         }
     }
 }

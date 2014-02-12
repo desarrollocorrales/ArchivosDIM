@@ -12,10 +12,10 @@ namespace ReporteAnualEmpleados
 {
     public partial class Frm_Principal : Form
     {
+        private string sFileName;
         private string[] sLineasArchivoDIM;
         private string[] sLineasArchivoBonos;
 
-        private StreamWriter fileResultado;
         private List<string[]> lstBonos;
         private List<string[]> lstDIM;
 
@@ -42,7 +42,7 @@ namespace ReporteAnualEmpleados
                     txb.Text = ofdArchivo.FileName;
                 }
 
-                sLineasArchivo = File.ReadAllLines(ofdArchivo.FileName);
+                sLineasArchivo = File.ReadAllLines(ofdArchivo.FileName, Encoding.Default);
 
                 ActualizarTxbAcciones(string.Format("El archivo {0} se cargó correctamente...", ofdArchivo.SafeFileName));
             }
@@ -55,6 +55,7 @@ namespace ReporteAnualEmpleados
         private void btnBuscarDIM_Click(object sender, EventArgs e)
         {
             BuscarArchivo(txbFileDIM, ref sLineasArchivoDIM);
+            sFileName = ofdArchivo.SafeFileName;
         }
 
         private void btnBuscarBonos_Click(object sender, EventArgs e)
@@ -80,6 +81,10 @@ namespace ReporteAnualEmpleados
         {
             try
             {
+                StreamWriter swFile =
+                    new StreamWriter(Environment.CurrentDirectory + "\\Archivos\\" + sFileName, false, Encoding.Default);
+                swFile.Close();
+
                 StringBuilder sb;
 
                 string RFC = string.Empty;
@@ -97,12 +102,17 @@ namespace ReporteAnualEmpleados
                     //Obtener RFC
                     RFC = vectorDIM[2];
 
+                    //Cambiar a Area B
+                    vectorDIM[7] = "02";
+
                     //Obtenr el dato de fondo de ahorro
-                    sAhorro = vectorDIM[1];
+                    sAhorro = vectorDIM[49];
                     if (sAhorro != string.Empty)
                     {
                         dAhorro = Convert.ToDecimal(sAhorro);
-                        dAhorro = (decimal)dAhorro / 2;
+                        dAhorro = (int)dAhorro / 2;
+
+                        vectorDIM[49] = dAhorro.ToString();
                     }
                     else
                         dAhorro = 0;
@@ -115,7 +125,11 @@ namespace ReporteAnualEmpleados
                         //Obtener el dato de bonos
                         sbono = vectorBonos[2];
                         if (sbono != string.Empty)
+                        {
                             dBono = Convert.ToDecimal(sbono);
+                            dBono = Convert.ToInt32(dBono);
+                            vectorDIM[53] = dBono.ToString();
+                        }
                         else
                             dBono = 0;
                     }
@@ -124,13 +138,19 @@ namespace ReporteAnualEmpleados
                         dBono = 0;
                     }
 
+                    //Cambiar campos 96 y 97
+                    vectorDIM[96] = (dAhorro + dBono).ToString();
+                    vectorDIM[97] = (dAhorro + dBono).ToString();
+
                     sb = new StringBuilder();
                     sb.Append(i++.ToString().PadLeft(3));
                     sb.Append(" Procesado ");
                     sb.Append(RFC.PadLeft(13));
-                    sb.Append(string.Format(" Ahorro Anterior: {0};",vectorDIM[1]));
+                    sb.Append(string.Format(" Ahorro Anterior: {0};",sAhorro));
                     sb.Append(string.Format(" Ahorro Final: {0};", dAhorro));
                     sb.Append(string.Format(" Bonos de despensa: {0};", dBono));
+
+                    modificarArchivo(vectorDIM);
 
                     ActualizarTxbAcciones(sb.ToString());
                 }
@@ -231,9 +251,20 @@ namespace ReporteAnualEmpleados
             return true;
         }
 
-        private void modificarArchivo()
+        private void modificarArchivo(string[] vector)
         {
+            StringBuilder sLinea = new StringBuilder();
+            foreach (string dato in vector)
+            {
+                sLinea.Append(dato);
+                sLinea.Append("|");
+            }
 
+            sLinea.Remove(sLinea.Length - 1, 1);
+
+            StreamWriter swFile = new StreamWriter(Environment.CurrentDirectory + "\\Archivos\\" + sFileName, true, Encoding.Default);
+            swFile.WriteLine(sLinea.ToString());
+            swFile.Close();
         }
     }
 }

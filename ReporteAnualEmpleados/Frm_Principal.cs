@@ -1,25 +1,26 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
-using System.IO;
+using ReporteAnualEmpleados.Modelos;
+using Excel;
+using System.Data;
 
 namespace ReporteAnualEmpleados
 {
-    public partial class Frm_Principal : Form
+    public partial class btnBuscarRFC : Form
     {
+        private List<DatosDim> lstDatosDim;
         private string sFileName;
         private string[] sLineasArchivoDIM;
-        private string[] sLineasArchivoBonos;
+        private string[] sLineasCatRFC;
 
         private List<string[]> lstBonos;
         private List<string[]> lstDIM;
 
-        public Frm_Principal()
+        public btnBuscarRFC()
         {
             InitializeComponent();
         }
@@ -54,22 +55,57 @@ namespace ReporteAnualEmpleados
 
         private void btnBuscarDIM_Click(object sender, EventArgs e)
         {
+            ofdArchivo.FileName = "*2*.txt";
+            ofdArchivo.Filter = "Archivos de Texto | *.txt";
             BuscarArchivo(txbFileDIM, ref sLineasArchivoDIM);
             sFileName = ofdArchivo.SafeFileName;
         }
 
         private void btnBuscarBonos_Click(object sender, EventArgs e)
         {
-            BuscarArchivo(txbFileBonos, ref sLineasArchivoBonos);
+            AbrirArchivoDeBonos();
+        }
+        private void AbrirArchivoDeBonos()
+        {
+            ofdArchivo.FileName = "*.xlsx";
+            ofdArchivo.Filter = "Archivo Excel | *.xlsx";
+            ofdArchivo.ShowDialog();
+            try
+            {
+                FileStream stream = File.Open(ofdArchivo.FileName, FileMode.Open, FileAccess.Read);
+                txbFileBonos.Text = ofdArchivo.FileName;
+                //2. Reading from a OpenXml Excel file (2007 format; *.xlsx)
+                IExcelDataReader excelReader = ExcelReaderFactory.CreateOpenXmlReader(stream);
+
+                //4. DataSet - Create column names from first row
+                excelReader.IsFirstRowAsColumnNames = true;
+                DataSet result = excelReader.AsDataSet();
+                var TablaExcel = result.Tables[0];
+
+                excelReader.Close();
+                foreach (DataRow fila in TablaExcel.Rows)
+                {
+                    int numEmpleado = Convert.ToInt32(fila[0]);
+                    var datoDim = lstDatosDim.FirstOrDefault(o => o.NumeroEmpleado == numEmpleado);
+                    datoDim.Nombre = fila[1].ToString();
+                    datoDim.GastoEmpresa = Convert.ToDecimal(fila[3] == DBNull.Value ? "0" : fila[3]);
+                    datoDim.BonoDespensa = Convert.ToDecimal(fila[4] == DBNull.Value ? "0" : fila[4]);
+                    datoDim.BonoDecembrino = Convert.ToDecimal(fila[5] == DBNull.Value ? "0" : fila[5]);
+                    datoDim.Beca = Convert.ToDecimal(fila[6] == DBNull.Value ? "0" : fila[6]);
+                }
+
+                ActualizarTxbAcciones(string.Format("El archivo {0} se cargó correctamente...", ofdArchivo.SafeFileName));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
         }
 
         private void btnProcesar_Click(object sender, EventArgs e)
         {
             if (ValidarArchivos() == true)
             {
-                LeerArchivoDIM();
-                LeerArchivoBonos();
-
                 ActualizarTxbAcciones(string.Empty);
                 ActualizarTxbAcciones("Iniciando proceso...");
                 Procesar();
@@ -81,79 +117,101 @@ namespace ReporteAnualEmpleados
         {
             try
             {
+                LeerArchivoDIM();
+
                 StreamWriter swFile =
                     new StreamWriter(Environment.CurrentDirectory + "\\Archivos\\" + sFileName, false, Encoding.Default);
                 swFile.Close();
 
                 StringBuilder sb;
 
-                string RFC = string.Empty;
-                string[] vectorBonos = null;
+                List<DatosDim> incio = new List<DatosDim>();
 
-                string sAhorro = string.Empty;
-                decimal dAhorro = 0;
+                foreach (DatosDim resp in lstDatosDim)
+                {
+                    incio.Add(new DatosDim
+                    {
+                        Beca = resp.Beca,
+                        BonoDecembrino = resp.BonoDecembrino,
+                        BonoDespensa = resp.BonoDespensa,
+                        GastoEmpresa = resp.GastoEmpresa,
+                        Nombre = resp.Nombre,
+                        NumeroEmpleado = resp.NumeroEmpleado,
+                        RFC = resp.RFC
 
-                string sbono = string.Empty;
-                decimal dBono = 0;
+                    });
+                }
+
+
 
                 int i = 1;
                 foreach (string[] vectorDIM in lstDIM)
                 {
-                    //Obtener RFC
-                    RFC = vectorDIM[2];
+                    string RFC = vectorDIM[2];
 
-                    //Cambiar a Area B
-                    vectorDIM[7] = "02";
 
-                    //Obtenr el dato de fondo de ahorro
-                    sAhorro = vectorDIM[49];
-                    if (sAhorro != string.Empty)
+                    var datoDim = incio.FirstOrDefault(o => o.RFC == RFC);
+
+
+                    if (vectorDIM.Count() < 49)
                     {
-                        dAhorro = Convert.ToDecimal(sAhorro);
-                        dAhorro = (int)dAhorro / 2;
+                        modificarArchivo(vectorDIM);
 
-                        vectorDIM[49] = dAhorro.ToString();
+                        continue;
+                        /*
+                        MessageBox.Show("No se encontro a la persona con el RFC: " + RFC);
+                        return;
+                        */
                     }
-                    else
-                        dAhorro = 0;
 
-                    //Obtener Vector del archivo de los bonos de despensa
-                    vectorBonos = lstBonos.Find(o => o.Contains(RFC));
 
-                    if (vectorBonos != null)
+                    if (datoDim == null)
                     {
-                        //Obtener el dato de bonos
-                        sbono = vectorBonos[2];
-                        if (sbono != string.Empty)
-                        {
-                            dBono = Convert.ToDecimal(sbono);
-                            dBono = Convert.ToInt32(dBono);
-                            vectorDIM[53] = dBono.ToString();
-                        }
-                        else
-                            dBono = 0;
+                        modificarArchivo(vectorDIM);
+                        
+                        sb = new StringBuilder();
+
+                        sb.Append("No se encontro a la persona con el RFC: " + RFC);
+
+                        ActualizarTxbAcciones(sb.ToString());
+
+                        continue;
+                        /*
+                        MessageBox.Show("No se encontro a la persona con el RFC: " + RFC);
+                        return;
+                        */
                     }
-                    else
-                    {
-                        dBono = 0;
-                    }
+
+                    //Obtener el dato de fondo de ahorro
+                    vectorDIM[49] = datoDim.GastoEmpresa.ToString();
+
+                    //Obtener dato de los bonos de despensa
+                    vectorDIM[53] = datoDim.BonoDespensa.ToString();
+
+                    //Obtener Dato para la beca
+                    vectorDIM[83] = datoDim.Beca.ToString();
 
                     //Cambiar campos 96 y 97
-                    vectorDIM[96] = (dAhorro + dBono).ToString();
-                    vectorDIM[97] = (dAhorro + dBono).ToString();
+                    vectorDIM[96] = (datoDim.BonoDespensa + datoDim.GastoEmpresa + datoDim.BonoDecembrino + datoDim.Beca).ToString();
+                    vectorDIM[97] = (datoDim.BonoDespensa + datoDim.GastoEmpresa + datoDim.BonoDecembrino + datoDim.Beca).ToString();
 
                     sb = new StringBuilder();
                     sb.Append(i++.ToString().PadLeft(3));
                     sb.Append(" Procesado ");
                     sb.Append(RFC.PadLeft(13));
-                    sb.Append(string.Format(" Ahorro Anterior: {0};",sAhorro));
-                    sb.Append(string.Format(" Ahorro Final: {0};", dAhorro));
-                    sb.Append(string.Format(" Bonos de despensa: {0};", dBono));
+                    sb.Append(string.Format(" GastoEmpresa: {0};", datoDim.GastoEmpresa.ToString("n").PadLeft(9)));
+                    sb.Append(string.Format(" BonoDecembrino: {0};", datoDim.BonoDecembrino.ToString("n").PadLeft(9)));
+                    sb.Append(string.Format(" Bonos de despensa: {0};", datoDim.BonoDespensa.ToString("n").PadLeft(9)));
 
                     modificarArchivo(vectorDIM);
 
                     ActualizarTxbAcciones(sb.ToString());
+
+                    // remueve seleccionado
+                    incio.Remove(datoDim);
                 }
+
+
             }
             catch (Exception ex)
             {
@@ -163,33 +221,23 @@ namespace ReporteAnualEmpleados
 
         private bool ValidarArchivos()
         {
-            bool exitoDIM = true;
-            bool exitoBonos = true;
-
-            if (sLineasArchivoDIM == null)
+            if (txbFileDIM.Text.Trim() == string.Empty)
             {
-                MessageBox.Show("Seleccione el archivo de texto DIM");
+                MessageBox.Show("Seleccione el archivo de texto DIM...");
                 return false;
             }
-            else
+            if (txbFileBonos.Text.Trim() == string.Empty)
             {
-                exitoDIM = ValidarArchivoDIM();
-            }
-
-            if (sLineasArchivoBonos == null)
-            {
-                MessageBox.Show("Seleccione el archivo con la informacion de los bonos de despensa");
+                MessageBox.Show("Seleccione el archivo de bonos...");
                 return false;
             }
-            else
+            if (txbFileCatRFC.Text.Trim() == string.Empty)
             {
-                exitoBonos= ValidarArchivoBonos();
-            }
-
-            if (exitoDIM && exitoBonos)
-                return true;
-            else
+                MessageBox.Show("Seleccione el archivo del catalogo de empleados...");
                 return false;
+            }
+                
+            return true;   
         }
 
         private void LeerArchivoDIM()
@@ -206,36 +254,6 @@ namespace ReporteAnualEmpleados
             }
 
             ActualizarTxbAcciones(string.Format("El archivo DIM se ha leido con exito!!!"));
-        }
-
-        private void LeerArchivoBonos()
-        {
-            string[] vector = null;
-
-            lstBonos = new List<string[]>();
-
-            foreach (string sLinea in sLineasArchivoBonos)
-            {
-                vector = new string[1];
-                vector = sLinea.Split('\t');
-                lstBonos.Add(vector);
-            }
-
-            ActualizarTxbAcciones(string.Format("El archivo de Bonos de despensa se ha leido con exito!!!"));
-        }
-
-        private bool ValidarArchivoBonos()
-        {
-            string[] vector = sLineasArchivoBonos[0].Split('\t');
-            
-            if (vector.Length != 5)
-            {
-                MessageBox.Show("El archivo de bonos no tiene el formato correcto", "Error", 
-                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-
-            return true;
         }
 
         private bool ValidarArchivoDIM()
@@ -266,5 +284,34 @@ namespace ReporteAnualEmpleados
             swFile.WriteLine(sLinea.ToString());
             swFile.Close();
         }
+
+        private void btnBuscarCatRFC_Click(object sender, EventArgs e)
+        {
+            ofdArchivo.FileName = "*CAT*.txt";
+            ofdArchivo.Filter = "Archivos de Texto | *.txt";
+            BuscarArchivo(txbFileCatRFC, ref sLineasCatRFC);
+
+            try
+            {
+                if (sLineasCatRFC.Length != 0)
+                {
+                    DatosDim datosDim;
+                    lstDatosDim = new List<DatosDim>();
+                    foreach (string linea in sLineasCatRFC)
+                    {
+                        var vector = linea.Split('\t');
+                        datosDim = new DatosDim();
+                        datosDim.NumeroEmpleado = Convert.ToInt32(vector[0]);
+                        datosDim.RFC = vector[4].Replace("\"", string.Empty);
+                        lstDatosDim.Add(datosDim);
+                    }
+                }
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show(ex.Message.ToString());
+            }
+        }
+
     }
 }
